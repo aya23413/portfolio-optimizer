@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.env
+venv/
+env/
+*.db
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+.pytest_cache/
+.vscode/
+.idea/
+*.log

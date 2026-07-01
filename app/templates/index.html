@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Accueil - Portfolio Optimizer{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Sélection des actifs</h1>
+
+<div class="card">
+    <div class="card-body">
+        <form id="asset-selection-form">
+            <div class="mb-3">
+                <label for="tickers" class="form-label">Tickers (séparés par des virgules)</label>
+                <input type="text" class="form-control" id="tickers" placeholder="AAPL, MSFT, GOOGL">
+            </div>
+            <div class="row mb-3">
+                <div class="col">
+                    <label for="start-date" class="form-label">Date de début</label>
+                    <input type="date" class="form-control" id="start-date">
+                </div>
+                <div class="col">
+                    <label for="end-date" class="form-label">Date de fin</label>
+                    <input type="date" class="form-control" id="end-date">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Récupérer les données</button>
+        </form>
+    </div>
+</div>
+
+<div id="results" class="mt-4"></div>
+{% endblock %}
