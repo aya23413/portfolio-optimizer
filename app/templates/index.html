@@ -10,22 +10,58 @@
         <form id="asset-selection-form">
             <div class="mb-3">
                 <label for="tickers" class="form-label">Tickers (séparés par des virgules)</label>
-                <input type="text" class="form-control" id="tickers" placeholder="AAPL, MSFT, GOOGL">
+                <input type="text" class="form-control" id="tickers" value="AAPL, MSFT, NVDA, AMZN, GOOGL">
             </div>
             <div class="row mb-3">
                 <div class="col">
                     <label for="start-date" class="form-label">Date de début</label>
-                    <input type="date" class="form-control" id="start-date">
+                    <input type="date" class="form-control" id="start-date" value="2020-01-01">
                 </div>
                 <div class="col">
                     <label for="end-date" class="form-label">Date de fin</label>
-                    <input type="date" class="form-control" id="end-date">
+                    <input type="date" class="form-control" id="end-date" value="2025-01-01">
                 </div>
             </div>
-            <button type="submit" class="btn btn-primary">Récupérer les données</button>
+            <button type="submit" class="btn btn-primary" id="submit-btn">Télécharger les données</button>
         </form>
     </div>
 </div>
 
 <div id="results" class="mt-4"></div>
+
+<div class="row mt-4">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <canvas id="priceChart" height="90"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mt-4">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <canvas id="returnsChart" height="90"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mt-4 mb-4">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Matrice de corrélation</h5>
+        <div id="correlationMatrix" class="table-responsive"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 {% endblock %}
