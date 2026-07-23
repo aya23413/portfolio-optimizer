@@ -1,18 +1,25 @@
-# --- Backend web ---
-Flask>=3.0
-Flask-SQLAlchemy>=3.1
+# Framework web
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.7
+python-dotenv==1.0.1
 
-# --- Données financières ---
-yfinance>=0.2.40
-curl_cffi>=0.7
+# Traitement de données
+pandas==2.2.2
+numpy==1.26.4
 
-# --- Calcul scientifique ---
-numpy>=1.26
-pandas>=2.2
-scipy>=1.13
+# Récupération de données financières
+yfinance==0.2.40
 
-# --- Machine Learning ---
-scikit-learn>=1.4
+# Optimisation
+scipy==1.13.1
+PyPortfolioOpt==1.5.5
 
-# --- Tests ---
-pytest>=8.0
+# Machine Learning (à ajuster selon la méthode retenue)
+scikit-learn==1.5.0
+
+# Visualisation (optionnel côté serveur)
+matplotlib==3.9.0
+
+# Tests
+pytest==8.2.2
