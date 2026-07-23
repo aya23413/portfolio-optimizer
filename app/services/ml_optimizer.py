@@ -1,4 +1,23 @@
 """
+⚠️ MODULE NON UTILISÉ EN PRODUCTION — conservé à titre de trace du
+cheminement méthodologique (voir rapport, chapitre 4).
+
+Ce module implémente Hierarchical Risk Parity (HRP), une approche de
+diversification par clustering hiérarchique n'estimant JAMAIS de
+rendement futur. Elle a été explorée comme candidate pour le volet
+Machine Learning de ce projet, avant d'être écartée au profit d'une
+architecture combinant prédiction supervisée et Black-Litterman (voir
+ml_black_litterman.py, actuellement utilisé par l'application), jugée
+plus alignée avec la problématique du mémoire ("dans quelle mesure le ML
+peut-il améliorer les méthodes classiques ?") : HRP ne fait aucune
+prédiction, donc ne permet pas de mesurer un R² ni de discuter du
+pouvoir prédictif du Machine Learning à proprement parler.
+
+Ce fichier reste fonctionnel et testable indépendamment, et pourrait
+être réintégré comme 4ᵉ méthode de comparaison si le temps le permet
+(voir perspectives, chapitre 5/conclusion).
+
+============================================================
 Service d'optimisation de portefeuille par Hierarchical Risk Parity (HRP).
 
 Référence : López de Prado, M. (2016), "Building Diversified Portfolios

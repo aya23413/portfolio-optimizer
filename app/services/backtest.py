@@ -23,6 +23,8 @@ du moment qu'elle respecte la signature :
 import numpy as np
 import pandas as pd
 
+from app.services.metrics import compute_max_drawdown, compute_sortino_ratio
+
 TRADING_DAYS_PER_YEAR = 252
 
 
@@ -93,6 +95,8 @@ def compute_realized_performance(
             "realized_return": 0.0,
             "realized_volatility": 0.0,
             "realized_sharpe": 0.0,
+            "realized_sortino": 0.0,
+            "max_drawdown": 0.0,
             "n_test_days": 0,
         }
 
@@ -108,10 +112,15 @@ def compute_realized_performance(
         else 0.0
     )
 
+    sortino = compute_sortino_ratio(daily_portfolio_returns, annualized_return, risk_free_rate)
+    max_dd = compute_max_drawdown(daily_portfolio_returns)
+
     return {
         "realized_return": round(float(annualized_return), 4),
         "realized_volatility": round(float(annualized_volatility), 4),
         "realized_sharpe": round(float(sharpe), 4),
+        "realized_sortino": round(sortino, 4),
+        "max_drawdown": round(max_dd, 4),
         "n_test_days": n_days,
     }
 
@@ -192,6 +201,10 @@ def run_backtest(
     realized_sharpes = [r["realized_sharpe"] for r in results]
     realized_returns = [r["realized_return"] for r in results]
     realized_vols = [r["realized_volatility"] for r in results]
+    realized_sortinos = [r["realized_sortino"] for r in results]
+    max_drawdowns = [r["max_drawdown"] for r in results]
+
+    win_rate = sum(1 for r in realized_returns if r > 0) / len(realized_returns)
 
     summary = {
         "method": method_name,
@@ -200,6 +213,10 @@ def run_backtest(
         "avg_realized_volatility": round(float(np.mean(realized_vols)), 4),
         "avg_realized_sharpe": round(float(np.mean(realized_sharpes)), 4),
         "std_realized_sharpe": round(float(np.std(realized_sharpes)), 4),
+        "avg_realized_sortino": round(float(np.mean(realized_sortinos)), 4),
+        "avg_max_drawdown": round(float(np.mean(max_drawdowns)), 4),
+        "worst_max_drawdown": round(float(np.min(max_drawdowns)), 4),
+        "win_rate": round(win_rate, 4),
     }
 
     return {"summary": summary, "windows": results}

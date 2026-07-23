@@ -5,7 +5,7 @@ import pandas as pd
 
 from app.services.markowitz import optimize_markowitz
 from app.services.black_litterman import optimize_black_litterman
-from app.services.ml_predictive import optimize_ml_predictive
+from app.services.ml_black_litterman import optimize_ml_black_litterman
 from app.services.backtest import run_backtest
 
 optimization_bp = Blueprint('optimization', __name__)
@@ -165,7 +165,10 @@ def ml_route():
 
     try:
         returns = _load_returns(tickers)
-        result = optimize_ml_predictive(returns, risk_free_rate=risk_free_rate)
+        end_prices = _load_end_prices(tickers)
+        result = optimize_ml_black_litterman(
+            returns, risk_free_rate=risk_free_rate, end_prices=end_prices
+        )
         return jsonify({'success': True, 'data': result})
     except FileNotFoundError as exc:
         return jsonify({'error': str(exc)}), 404
@@ -221,6 +224,18 @@ def backtest_route():
                 'end_prices': end_prices,
             }
 
+        def ml_bl_kwargs(window):
+            # optimize_ml_black_litterman génère ses propres vues en
+            # interne (à partir des prédictions du modèle ML) -> pas de
+            # 'views'/'confidences' à fournir ici, contrairement à
+            # Black-Litterman pur (bl_kwargs ci-dessus)
+            train_end_date = window['train_returns'].index.max()
+            end_prices = prices.loc[:train_end_date].iloc[-1]
+            return {
+                'tau': 0.05,
+                'end_prices': end_prices,
+            }
+
         black_litterman_result = run_backtest(
             returns,
             method_name='Black-Litterman',
@@ -230,15 +245,16 @@ def backtest_route():
             optimize_kwargs_fn=bl_kwargs,
         )
 
-        # ML prédictif : aucun paramètre supplémentaire nécessaire, même
-        # signature que les deux autres -> le moteur générique
-        # run_backtest() fonctionne sans modification
+        # ML (Black-Litterman + IA) : même logique de end_prices par
+        # fenêtre que Black-Litterman seul, puisque optimize_ml_black_litterman
+        # repose sur le même mécanisme d'ancrage temporel
         ml_result = run_backtest(
             returns,
-            method_name='ML prédictif (Random Forest)',
-            optimize_fn=optimize_ml_predictive,
+            method_name='ML (Black-Litterman + IA)',
+            optimize_fn=optimize_ml_black_litterman,
             risk_free_rate=risk_free_rate,
             min_train_years=min_train_years,
+            optimize_kwargs_fn=ml_bl_kwargs,
         )
 
         return jsonify({

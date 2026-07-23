@@ -193,11 +193,53 @@ function renderMLResult(data) {
             </tr>
         `).join('');
 
-    const modelBadge = data.model_used
-        ? `<span class="badge bg-success">Random Forest entraîné (${data.n_training_samples} exemples)</span>`
-        : `<span class="badge bg-secondary">Repli sur la moyenne historique (trop peu de données)</span>`;
+    const modelNames = {
+        ridge: 'Ridge Regression',
+        random_forest: 'Random Forest',
+        gradient_boosting: 'Gradient Boosting',
+    };
+    const modelLabel = data.ml_model_selected
+        ? (modelNames[data.ml_model_selected] || data.ml_model_selected)
+        : null;
 
-    const predictedRows = Object.entries(data.predicted_returns || {})
+    const modelBadge = modelLabel
+        ? `<span class="badge bg-success">Vues générées par ${modelLabel}</span>`
+        : `<span class="badge bg-secondary">Pas assez de données — équilibre de marché pur</span>`;
+
+    const diag = data.ml_model_diagnostics || {};
+    const diagnosticsHtml = (modelLabel && diag.r2 !== null && diag.r2 !== undefined)
+        ? `
+            <p class="small text-muted mb-1">
+                Qualité du modèle (hold-out chronologique) :
+                MAE = ${diag.mae.toFixed(4)},
+                RMSE = ${diag.rmse.toFixed(4)},
+                R² = ${diag.r2.toFixed(4)}
+                (${diag.n_test_samples} exemples de test)
+            </p>
+        `
+        : '';
+
+    const confidencePct = ((data.confidence_used || 0) * 100).toFixed(1);
+    const confidenceHtml = `
+        <p class="small text-muted mb-1">
+            Confiance appliquée aux vues (auto-calibrée sur le R²) : <strong>${confidencePct} %</strong>
+        </p>
+    `;
+
+    const excludedHtml = (data.views_excluded && data.views_excluded.length > 0)
+        ? `
+            <p class="small text-muted mb-3">
+                Aucune vue soumise pour ${data.views_excluded.join(', ')} (rendement prédit négatif) —
+                équilibre de marché utilisé pour ces actifs.
+            </p>
+        `
+        : '<p class="small text-muted mb-3"></p>';
+
+    const warningsHtml = (data.warnings || []).map(w => `
+        <div class="alert alert-warning py-2 px-3 small mb-3">⚠️ ${w}</div>
+    `).join('');
+
+    const predictedRows = Object.entries(data.ml_predicted_returns || {})
         .sort((a, b) => b[1] - a[1])
         .map(([ticker, r]) => `
             <tr><td>${ticker}</td><td class="text-end">${(r * 100).toFixed(2)} %</td></tr>
@@ -205,6 +247,10 @@ function renderMLResult(data) {
 
     return `
         <p class="mb-2">${modelBadge}</p>
+        ${diagnosticsHtml}
+        ${confidenceHtml}
+        ${excludedHtml}
+        ${warningsHtml}
         <table class="table table-sm mb-3">
             <thead><tr><th>Actif</th><th class="text-end">Poids</th></tr></thead>
             <tbody>${rows}</tbody>
@@ -213,7 +259,7 @@ function renderMLResult(data) {
         <p class="mb-1"><strong>Volatilité :</strong> ${(data.volatility * 100).toFixed(2)} %</p>
         <p class="mb-3"><strong>Ratio de Sharpe :</strong> ${data.sharpe_ratio.toFixed(4)}</p>
         <details>
-            <summary class="small text-muted" style="cursor:pointer;">Voir les rendements prédits par le modèle</summary>
+            <summary class="small text-muted" style="cursor:pointer;">Voir les rendements prédits par le modèle (vues soumises à Black-Litterman)</summary>
             <table class="table table-sm mt-2">
                 <thead><tr><th>Actif</th><th class="text-end">Rendement prédit</th></tr></thead>
                 <tbody>${predictedRows}</tbody>
@@ -262,6 +308,10 @@ function renderBacktestResult(data) {
             <td class="text-end">${(summary.avg_realized_volatility * 100).toFixed(2)} %</td>
             <td class="text-end">${summary.avg_realized_sharpe.toFixed(4)}</td>
             <td class="text-end">${summary.std_realized_sharpe.toFixed(4)}</td>
+            <td class="text-end">${summary.avg_realized_sortino.toFixed(4)}</td>
+            <td class="text-end">${(summary.avg_max_drawdown * 100).toFixed(2)} %</td>
+            <td class="text-end">${(summary.worst_max_drawdown * 100).toFixed(2)} %</td>
+            <td class="text-end">${(summary.win_rate * 100).toFixed(0)} %</td>
         </tr>
     `;
 
@@ -290,12 +340,16 @@ function renderBacktestResult(data) {
                     <th class="text-end">Volatilité réalisée (moy.)</th>
                     <th class="text-end">Sharpe réalisé (moy.)</th>
                     <th class="text-end">Sharpe réalisé (écart-type)</th>
+                    <th class="text-end">Sortino (moy.)</th>
+                    <th class="text-end">Max Drawdown (moy.)</th>
+                    <th class="text-end">Max Drawdown (pire)</th>
+                    <th class="text-end">Taux de réussite</th>
                 </tr>
             </thead>
             <tbody>
                 ${summaryRow('Markowitz', markowitz.summary)}
                 ${summaryRow('Black-Litterman', black_litterman.summary)}
-                ${summaryRow('ML prédictif (RF)', ml.summary)}
+                ${summaryRow('ML (BL + IA)', ml.summary)}
             </tbody>
         </table>
 
@@ -331,7 +385,7 @@ function renderBacktestResult(data) {
                 </table>
             </div>
             <div class="col-md-4">
-                <h6>Détail par année — ML prédictif (RF)</h6>
+                <h6>Détail par année — ML (BL + IA)</h6>
                 <table class="table table-sm">
                     <thead>
                         <tr>
@@ -368,7 +422,7 @@ function renderBacktestChart(data) {
             datasets: [
                 { label: 'Markowitz — Sharpe réalisé', data: markowitzSharpes, backgroundColor: '#4e79a7' },
                 { label: 'Black-Litterman — Sharpe réalisé', data: blSharpes, backgroundColor: '#f28e2b' },
-                { label: 'ML prédictif — Sharpe réalisé', data: mlSharpes, backgroundColor: '#59a14f' },
+                { label: 'ML (BL + IA) — Sharpe réalisé', data: mlSharpes, backgroundColor: '#59a14f' },
             ],
         },
         options: {
