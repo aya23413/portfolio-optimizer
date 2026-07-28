@@ -465,20 +465,106 @@ async function runMarkowitz(tickers, maxWeight) {
 // Black-Litterman
 // ============================================================
 
+let blViewRowCount = 0;
+
 async function initBlackLitterman(tickers) {
     const blDiv = document.getElementById('black-litterman-results');
     if (!blDiv) return;
 
-    blDiv.innerHTML = '<p class="text-muted">Calcul en cours...</p>';
-    await runBlackLitterman(tickers);
+    const tickerOptions = tickers.map(t => `<option value="${t}">${t}</option>`).join('');
+
+    blDiv.innerHTML = `
+        <div class="mb-3">
+            <p class="small text-muted mb-2">Vos vues (optionnel)</p>
+            <div id="bl-views-rows"></div>
+            <button type="button" id="bl-add-view-btn" class="btn btn-sm btn-outline-secondary mt-1">
+                + Ajouter une vue
+            </button>
+            <div class="mt-2">
+                <button type="button" id="bl-apply-views-btn" class="btn btn-sm btn-primary">
+                    Appliquer les vues
+                </button>
+                <button type="button" id="bl-reset-views-btn" class="btn btn-sm btn-outline-secondary">
+                    Réinitialiser
+                </button>
+            </div>
+        </div>
+        <div id="black-litterman-output">
+            <p class="text-muted">Calcul en cours...</p>
+        </div>
+    `;
+
+    const addViewRow = () => {
+        blViewRowCount += 1;
+        const rowId = `bl-view-row-${blViewRowCount}`;
+        const rowsContainer = document.getElementById('bl-views-rows');
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 align-items-center';
+        row.id = rowId;
+        row.innerHTML = `
+            <div class="col-4">
+                <select class="form-select form-select-sm bl-view-ticker">
+                    ${tickerOptions}
+                </select>
+            </div>
+            <div class="col-3">
+                <input type="number" class="form-control form-control-sm bl-view-return"
+                       placeholder="Rendement %" step="1">
+            </div>
+            <div class="col-3">
+                <input type="number" class="form-control form-control-sm bl-view-confidence"
+                       placeholder="Confiance %" min="1" max="99" step="1">
+            </div>
+            <div class="col-2">
+                <button type="button" class="btn btn-sm btn-outline-danger bl-remove-row">×</button>
+            </div>
+        `;
+        rowsContainer.appendChild(row);
+        row.querySelector('.bl-remove-row').addEventListener('click', () => row.remove());
+    };
+
+    // Une première ligne de vue affichée par défaut, vide
+    addViewRow();
+
+    document.getElementById('bl-add-view-btn').addEventListener('click', addViewRow);
+
+    document.getElementById('bl-apply-views-btn').addEventListener('click', () => {
+        const { views, confidences } = collectBlViewsFromForm();
+        runBlackLitterman(tickers, views, confidences);
+    });
+
+    document.getElementById('bl-reset-views-btn').addEventListener('click', () => {
+        document.getElementById('bl-views-rows').innerHTML = '';
+        addViewRow();
+        runBlackLitterman(tickers, {}, {});
+    });
+
+    // Premier calcul au chargement : sans vue (équilibre de marché pur)
+    await runBlackLitterman(tickers, {}, {});
 }
 
-async function runBlackLitterman(tickers) {
-    const outputDiv = document.getElementById('black-litterman-results');
-    outputDiv.innerHTML = '<p class="text-muted">Calcul en cours...</p>';
-
+function collectBlViewsFromForm() {
     const views = {};
     const confidences = {};
+
+    document.querySelectorAll('#bl-views-rows > div').forEach(row => {
+        const ticker = row.querySelector('.bl-view-ticker').value;
+        const returnPct = row.querySelector('.bl-view-return').value;
+        const confidencePct = row.querySelector('.bl-view-confidence').value;
+
+        if (ticker && returnPct !== '') {
+            views[ticker] = parseFloat(returnPct) / 100;
+            const conf = confidencePct !== '' ? parseFloat(confidencePct) / 100 : 0.5;
+            confidences[ticker] = Math.min(Math.max(conf, 0.01), 0.99);
+        }
+    });
+
+    return { views, confidences };
+}
+
+async function runBlackLitterman(tickers, views, confidences) {
+    const outputDiv = document.getElementById('black-litterman-output');
+    outputDiv.innerHTML = '<p class="text-muted">Calcul en cours...</p>';
 
     try {
         const response = await fetch('/api/optimization/black-litterman', {
@@ -499,7 +585,12 @@ async function runBlackLitterman(tickers) {
             return;
         }
 
-        outputDiv.innerHTML = renderBlackLittermanResult(result.data);
+        const viewTickers = Object.keys(views);
+        const appliedHtml = viewTickers.length > 0
+            ? `<p class="small text-muted mb-2">Vue(s) appliquée(s) : ${viewTickers.join(', ')}</p>`
+            : '';
+
+        outputDiv.innerHTML = appliedHtml + renderBlackLittermanResult(result.data);
         registerComparisonResult('Black-Litterman', result.data);
     } catch (err) {
         outputDiv.innerHTML = `<div class="alert alert-danger">Erreur : ${err.message}</div>`;
@@ -520,6 +611,33 @@ function renderBlackLittermanResult(data) {
         <div class="alert alert-warning py-2 px-3 small mb-3">⚠️ ${w}</div>
     `).join('');
 
+    // Comparaison Pi (équilibre) vs rendements postérieurs, si disponible
+    let effectHtml = '';
+    if (data.equilibrium_returns && data.posterior_returns) {
+        const effectRows = Object.keys(data.equilibrium_returns)
+            .map(ticker => `
+                <tr>
+                    <td>${ticker}</td>
+                    <td class="text-end">${(data.equilibrium_returns[ticker] * 100).toFixed(2)} %</td>
+                    <td class="text-end">${(data.posterior_returns[ticker] * 100).toFixed(2)} %</td>
+                </tr>
+            `).join('');
+
+        effectHtml = `
+            <details class="mb-3">
+                <summary class="small text-muted" style="cursor:pointer;">
+                    Voir l'effet des vues (équilibre vs postérieur)
+                </summary>
+                <table class="table table-sm mt-2">
+                    <thead>
+                        <tr><th>Actif</th><th class="text-end">Pi (équilibre)</th><th class="text-end">Postérieur</th></tr>
+                    </thead>
+                    <tbody>${effectRows}</tbody>
+                </table>
+            </details>
+        `;
+    }
+
     return `
         ${warningsHtml}
         <table class="table table-sm mb-3">
@@ -528,7 +646,8 @@ function renderBlackLittermanResult(data) {
         </table>
         <p class="mb-1"><strong>Rendement attendu :</strong> ${(data.expected_return * 100).toFixed(2)} %</p>
         <p class="mb-1"><strong>Volatilité :</strong> ${(data.volatility * 100).toFixed(2)} %</p>
-        <p class="mb-0"><strong>Ratio de Sharpe :</strong> ${data.sharpe_ratio.toFixed(4)}</p>
+        <p class="mb-3"><strong>Ratio de Sharpe :</strong> ${data.sharpe_ratio.toFixed(4)}</p>
+        ${effectHtml}
     `;
 }
 

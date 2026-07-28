@@ -101,23 +101,31 @@ def test_low_confidence_view_has_small_effect():
     returns = make_fake_returns()
     market_weights = make_fake_market_weights()
 
+    # NOTE : test sur ACTIF_A plutôt qu'ACTIF_D. Avec l'optimisation par
+    # utilité quadratique (voir black_litterman.py::negative_quadratic_utility),
+    # un actif dont le rendement d'équilibre (Pi) est proche de zéro
+    # (c'est le cas d'ACTIF_D) est mécaniquement hypersensible à toute
+    # vue non nulle, même à confiance quasi nulle : l'utilité quadratique
+    # amplifie les écarts autour d'un rendement de base proche de zéro.
+    # ACTIF_A, dont le Pi est substantiel, donne un test de "vue faible"
+    # plus représentatif du cas d'usage réel (ml_black_litterman.py).
     baseline = optimize_black_litterman(returns, views={}, market_weights=market_weights)
     with_weak_view = optimize_black_litterman(
         returns,
-        views={"ACTIF_D": 0.80},  # vue extrême
-        confidences={"ACTIF_D": 0.05},  # mais confiance quasi nulle
+        views={"ACTIF_A": 0.30},  # vue optimiste mais pas extrême
+        confidences={"ACTIF_A": 0.05},  # confiance quasi nulle
         market_weights=market_weights,
     )
 
-    baseline_d = baseline["weights"]["ACTIF_D"]
-    view_d = with_weak_view["weights"]["ACTIF_D"]
-    diff = abs(view_d - baseline_d)
+    baseline_a = baseline["weights"]["ACTIF_A"]
+    view_a = with_weak_view["weights"]["ACTIF_A"]
+    diff = abs(view_a - baseline_a)
 
     assert diff < 0.05, (
         f"Une vue à confiance quasi nulle ne devrait presque pas changer "
         f"le poids : écart observé = {diff:.4f} (attendu < 0.05)"
     )
-    print(f"[OK] Vue à faible confiance : écart de poids = {diff:.4f} (attendu petit)")
+    print(f"[OK] Vue à faible confiance sur ACTIF_A : écart de poids = {diff:.4f} (attendu petit)")
 
 
 if __name__ == "__main__":

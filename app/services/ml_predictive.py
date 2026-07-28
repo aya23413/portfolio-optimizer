@@ -334,11 +334,12 @@ def build_training_dataset(
 # Entraînement multi-modèles + sélection automatique
 # ============================================================
 
-# Les 3 familles de modèles comparées, chacune avec sa propre grille
+# Les familles de modèles comparées, chacune avec sa propre grille
 # d'hyperparamètres. Choix volontairement diversifié : une méthode
 # linéaire régularisée (Ridge) sert de référence simple — si les
 # méthodes plus complexes ne la battent pas, c'est un résultat à
-# documenter, pas à cacher.
+# documenter, pas à cacher. XGBoost est ajouté séparément ci-dessous,
+# uniquement s'il est installé (voir XGBOOST_AVAILABLE).
 MODEL_CONFIGS = {
     "ridge": {
         "estimator": lambda random_state: Ridge(random_state=random_state),

@@ -227,6 +227,37 @@ def build_views_matrices(
     return P, Q, Omega
 
 
+def negative_quadratic_utility(
+    weights: np.ndarray,
+    mean_returns: pd.Series,
+    cov_matrix: pd.DataFrame,
+    risk_aversion: float,
+) -> float:
+    """
+    Oppose de l'utilité moyenne-variance classique :
+        U(w) = w'.mu - (delta/2).w'.Sigma.w
+
+    C'est l'objectif ORIGINAL de Black & Litterman (1992), à ne pas
+    confondre avec la maximisation du ratio de Sharpe utilisée dans
+    markowitz.py. La différence est cruciale : la reverse optimization
+    de l'étape 2 (Pi = delta * Sigma * w_marché) est l'exacte condition
+    du premier ordre de CETTE utilité quadratique, pas de celle du
+    ratio de Sharpe (qui soustrait risk_free_rate).
+
+    Conséquence si on utilise le ratio de Sharpe à la place (comme le
+    fait Markowitz) : dès que risk_free_rate != 0, le terme -rf déforme
+    la direction du portefeuille optimal, et Black-Litterman SANS vue
+    ne retombe plus sur les poids de marché — violation de la propriété
+    fondamentale du modèle (vérifié empiriquement, voir
+    tests/test_black_litterman.py::test_no_views_close_to_market_weights,
+    et rapport chapitre 4).
+    """
+    ret = portfolio_return(weights, mean_returns)
+    variance = portfolio_volatility(weights, cov_matrix) ** 2
+    utility = ret - (risk_aversion / 2.0) * variance
+    return -utility
+
+
 def black_litterman_posterior(
     pi: pd.Series,
     cov_matrix: pd.DataFrame,
@@ -347,16 +378,27 @@ def optimize_black_litterman(
         pi, cov_matrix, tau, P, Q, Omega
     )
 
-    # Étape 4 : optimisation moyenne-variance (max Sharpe), exactement
-    # comme pour Markowitz, mais sur les rendements/covariance postérieurs
+    # Étape 4 : optimisation d'utilité moyenne-variance (PAS max Sharpe),
+    # sur les rendements/covariance postérieurs.
+    #
+    # IMPORTANT : contrairement à Markowitz (markowitz.py), qui maximise
+    # le ratio de Sharpe, Black-Litterman doit maximiser l'utilité
+    # quadratique w'.mu - (delta/2).w'.Sigma.w, avec le MÊME delta que
+    # celui utilisé à l'étape 2 pour calculer Pi. C'est la seule façon
+    # de garantir la propriété d'équilibre : sans vue (posterior = Pi),
+    # l'optimum retombe exactement sur les poids de marché, car Pi est
+    # justement construit comme la condition du premier ordre de CETTE
+    # utilité (reverse optimization). Utiliser le ratio de Sharpe ici
+    # introduirait un terme -risk_free_rate qui casse cette cohérence
+    # (voir negative_quadratic_utility ci-dessus).
     initial_weights = np.array([1.0 / n_assets] * n_assets)
     constraints = build_constraints(n_assets)
     bounds = build_bounds(n_assets, max_weight=1.0)
 
     result = minimize(
-        fun=negative_sharpe_ratio,
+        fun=negative_quadratic_utility,
         x0=initial_weights,
-        args=(posterior_returns, posterior_cov, risk_free_rate),
+        args=(posterior_returns, posterior_cov, risk_aversion),
         method="SLSQP",
         bounds=bounds,
         constraints=constraints,

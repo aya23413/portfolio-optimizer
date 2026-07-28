@@ -17,8 +17,11 @@
     <div class="col-md-4">
         <div class="card">
             <div class="card-header">Black-Litterman</div>
-            <div class="card-body" id="black-litterman-results">
-                <p class="text-muted">En attente de calcul...</p>
+            <div class="card-body">
+                <div id="bl-views-form" class="mb-3"></div>
+                <div id="black-litterman-results">
+                    <p class="text-muted">En attente de calcul...</p>
+                </div>
             </div>
         </div>
     </div>
@@ -57,5 +60,5 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='js/Dashboard.js') }}"></script>
 {% endblock %}
