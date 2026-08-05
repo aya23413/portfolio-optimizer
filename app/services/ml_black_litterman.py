@@ -1,8 +1,14 @@
 """
 Service combinant Machine Learning et Black-Litterman : le modèle prédictif
-(voir ml_predictive.py) génère des VUES automatiques, injectées dans le
-mécanisme bayésien de Black-Litterman plutôt que directement dans un
-optimiseur moyenne-variance classique (Markowitz).
+(voir app/services/ml/, pipeline modulaire — Ridge/Random Forest/Gradient
+Boosting par actif, sélection automatique de la famille de modèle la plus
+performante) génère des VUES automatiques, injectées dans le mécanisme
+bayésien de Black-Litterman plutôt que directement dans un optimiseur
+moyenne-variance classique (Markowitz).
+
+L'ancien pipeline (ml_predictive.py, v1, un seul modèle pooled sur tous
+les tickers) est conservé en trace mais n'est plus utilisé en production
+depuis la reconstruction modulaire du pipeline ML (voir app/services/ml/).
 
 JUSTIFICATION SCIENTIFIQUE (à citer dans le rapport) :
 Cette architecture est directement inspirée de travaux publiés sur le
@@ -26,8 +32,9 @@ pour un signal faible, pas un contournement.
 MÉCANISME DE CONFIANCE AUTO-CALIBRÉE (contribution propre à ce projet) :
 Plutôt que de fixer arbitrairement un niveau de confiance pour chaque
 vue générée par le modèle, la confiance est dérivée directement du R²
-mesuré empiriquement sur le jeu de test hold-out (voir
-ml_predictive.evaluate_model_fit) :
+mesuré empiriquement sur le jeu de test hold-out de chaque actif (moyenne
+sur le portefeuille, voir app/services/ml/evaluator.py et
+app/services/ml/predictor.py::run_ml_pipeline) :
 
     confiance = clip(R², confiance_min, confiance_max)
 
@@ -48,12 +55,7 @@ plutôt que sur une prédiction négative potentiellement peu fiable.
 import numpy as np
 import pandas as pd
 
-from app.services.ml_predictive import (
-    build_training_dataset,
-    train_return_predictor,
-    evaluate_model_fit,
-    predict_expected_returns,
-)
+from app.services.ml.predictor import run_ml_pipeline
 from app.services.black_litterman import optimize_black_litterman
 
 MIN_CONFIDENCE = 0.05  # confiance minimale, même si R² est négatif ou nul
@@ -117,6 +119,7 @@ def optimize_ml_black_litterman(
     market_weights: dict = None,
     random_state: int = 42,
     exclude_negative_views: bool = True,
+    fast_mode: bool = False,
 ) -> dict:
     """
     Calcule le portefeuille optimal en combinant :
@@ -136,6 +139,11 @@ def optimize_ml_black_litterman(
                         calculés automatiquement via capitalisation)
         random_state: graine aléatoire pour la reproductibilité du modèle ML
         exclude_negative_views: voir build_ml_views()
+        fast_mode: voir ml/predictor.py::run_ml_pipeline. À utiliser pour
+                   les appels répétés (backtest.py, une exécution PAR
+                   fenêtre glissante) où le pipeline complet à 6 modèles
+                   serait trop coûteux à relancer plusieurs fois pour un
+                   seul clic utilisateur.
 
     Returns:
         dict avec la même structure que optimize_black_litterman(), plus :
@@ -150,26 +158,28 @@ def optimize_ml_black_litterman(
     """
     tickers = list(returns.columns)
 
-    # Étape 1 : pipeline prédictif (identique à ml_predictive.py)
-    X, y, feature_names = build_training_dataset(returns)
+    # Étape 1 : pipeline prédictif modulaire (voir app/services/ml/),
+    # reconstruit en 2026 pour remplacer l'ancien ml_predictive.py (v1,
+    # conservé en trace). Entraîne Ridge/RF/GB par actif, sélectionne
+    # automatiquement la famille de modèle globalement la plus performante
+    # (score composite direction/R²/Sharpe, voir ml/model_selector.py),
+    # puis prédit le rendement annualisé de chaque actif.
+    pipeline_result = run_ml_pipeline(
+        returns, tickers=tickers, random_state=random_state, fast_mode=fast_mode
+    )
 
-    if len(X) < 30:
-        # Pas assez de données pour un modèle fiable -> aucune vue,
-        # Black-Litterman se comporte comme un portefeuille d'équilibre pur
-        predicted_returns = pd.Series(dtype=float)
-        model_selected = None
-        model_diagnostics = {"mae": None, "rmse": None, "r2": None, "n_test_samples": 0}
+    predicted_returns = pipeline_result["predicted_returns"].reindex(tickers).dropna()
+    model_selected = pipeline_result["model_selected"]
+    model_diagnostics = pipeline_result["model_diagnostics"]
+    skipped_tickers = pipeline_result["skipped_tickers"]
+
+    if len(predicted_returns) == 0:
+        # Aucun ticker n'a assez d'historique pour un modèle fiable ->
+        # aucune vue, Black-Litterman se comporte comme un portefeuille
+        # d'équilibre pur (comportement identique à l'ancien pipeline)
         confidence = MIN_CONFIDENCE
     else:
-        model, model_selected, best_params, comparison = train_return_predictor(
-            X, y, random_state=random_state
-        )
-        predicted_returns = predict_expected_returns(returns, model, feature_names)
-        predicted_returns = predicted_returns.reindex(tickers)
-        model_diagnostics = evaluate_model_fit(
-            X, y, model_type=model_selected, random_state=random_state
-        )
-        r2 = model_diagnostics.get("r2")
+        r2 = pipeline_result["global_r2"]
         confidence = r2_to_confidence(r2 if r2 is not None else 0.0)
 
     # Étape 2 : conversion des prédictions en vues Black-Litterman
@@ -203,5 +213,7 @@ def optimize_ml_black_litterman(
     result["ml_model_diagnostics"] = model_diagnostics
     result["confidence_used"] = round(confidence, 4)
     result["views_excluded"] = excluded_tickers
+    result["ml_tickers_skipped"] = skipped_tickers  # historique insuffisant, aucune prédiction générée
+    result["fast_mode_used"] = fast_mode
 
     return result

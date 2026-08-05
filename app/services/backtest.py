@@ -97,12 +97,19 @@ def compute_realized_performance(
             "realized_sharpe": 0.0,
             "realized_sortino": 0.0,
             "max_drawdown": 0.0,
+            "cagr": 0.0,
+            "calmar_ratio": 0.0,
             "n_test_days": 0,
         }
 
     # Rendement annualisé par capitalisation (cohérent avec le reste du projet)
+    # -> c'est EXACTEMENT la définition du CAGR (taux de croissance annuel
+    # composé réellement réalisé sur la période testée), donc pas de calcul
+    # redondant : on l'expose aussi sous ce nom pour matcher les métriques
+    # attendues (voir metrics.py::compute_cagr pour la version générique).
     cumulative_return = np.prod(1 + daily_portfolio_returns) - 1
     annualized_return = (1 + cumulative_return) ** (TRADING_DAYS_PER_YEAR / n_days) - 1
+    cagr = annualized_return
 
     annualized_volatility = daily_portfolio_returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
 
@@ -114,6 +121,7 @@ def compute_realized_performance(
 
     sortino = compute_sortino_ratio(daily_portfolio_returns, annualized_return, risk_free_rate)
     max_dd = compute_max_drawdown(daily_portfolio_returns)
+    calmar = cagr / abs(max_dd) if max_dd != 0 else 0.0
 
     return {
         "realized_return": round(float(annualized_return), 4),
@@ -121,6 +129,8 @@ def compute_realized_performance(
         "realized_sharpe": round(float(sharpe), 4),
         "realized_sortino": round(sortino, 4),
         "max_drawdown": round(max_dd, 4),
+        "cagr": round(float(cagr), 4),
+        "calmar_ratio": round(float(calmar), 4),
         "n_test_days": n_days,
     }
 
@@ -203,6 +213,8 @@ def run_backtest(
     realized_vols = [r["realized_volatility"] for r in results]
     realized_sortinos = [r["realized_sortino"] for r in results]
     max_drawdowns = [r["max_drawdown"] for r in results]
+    cagrs = [r["cagr"] for r in results]
+    calmar_ratios = [r["calmar_ratio"] for r in results]
 
     win_rate = sum(1 for r in realized_returns if r > 0) / len(realized_returns)
 
@@ -216,6 +228,9 @@ def run_backtest(
         "avg_realized_sortino": round(float(np.mean(realized_sortinos)), 4),
         "avg_max_drawdown": round(float(np.mean(max_drawdowns)), 4),
         "worst_max_drawdown": round(float(np.min(max_drawdowns)), 4),
+        "avg_cagr": round(float(np.mean(cagrs)), 4),
+        "avg_calmar_ratio": round(float(np.mean(calmar_ratios)), 4),
+        "worst_calmar_ratio": round(float(np.min(calmar_ratios)), 4),
         "win_rate": round(win_rate, 4),
     }
 

@@ -152,7 +152,10 @@ def black_litterman_route():
 @optimization_bp.route('/ml', methods=['POST'])
 def ml_route():
     """
-    Calcule le portefeuille optimal selon Hierarchical Risk Parity (HRP).
+    Calcule le portefeuille optimal selon Black-Litterman + IA (pipeline
+    ML modulaire, app/services/ml/ : sélection automatique parmi 6
+    familles de modèles, dont les prédictions deviennent des vues
+    Black-Litterman avec confiance auto-calibrée sur le R²).
 
     Body JSON attendu : {"tickers": ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"], "risk_free_rate": 0.02}
     """
@@ -228,12 +231,21 @@ def backtest_route():
             # optimize_ml_black_litterman génère ses propres vues en
             # interne (à partir des prédictions du modèle ML) -> pas de
             # 'views'/'confidences' à fournir ici, contrairement à
-            # Black-Litterman pur (bl_kwargs ci-dessus)
+            # Black-Litterman pur (bl_kwargs ci-dessus).
+            #
+            # fast_mode=True : le pipeline ML tourne UNE FOIS PAR FENÊTRE
+            # glissante (potentiellement 3-5 fois pour un seul backtest).
+            # Le pipeline complet à 6 modèles (utilisé par la route /ml,
+            # qui ne tourne qu'une fois) serait beaucoup trop coûteux ici
+            # -> on limite à Ridge + Gradient Boosting avec un tuning
+            # minimal (voir ml/trainer.py::FAST_MODE_MODELS), un compromis
+            # documenté comme limite dans le rapport (chapitre 4).
             train_end_date = window['train_returns'].index.max()
             end_prices = prices.loc[:train_end_date].iloc[-1]
             return {
                 'tau': 0.05,
                 'end_prices': end_prices,
+                'fast_mode': True,
             }
 
         black_litterman_result = run_backtest(

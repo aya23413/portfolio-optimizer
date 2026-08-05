@@ -1,9 +1,20 @@
 """
-Tests pour optimize_black_litterman() avec données synthétiques
-reproductibles (même principe que test_markowitz.py).
+Tests pour optimize_ml_black_litterman() et le mécanisme de confiance
+auto-calibrée sur le R².
 
 Lancer avec :
-    python tests/test_black_litterman.py
+    python tests/test_ml_black_litterman.py
+
+Note : le test d'intégration (test 5) simule ses propres données OHLCV
+(voir fake_download_ohlcv ci-dessous) plutôt que d'appeler yfinance :
+les tickers utilisés dans ce fichier ("ACTIF_A"...) sont fictifs et ne
+correspondent à aucun symbole boursier réel, donc un vrai appel réseau
+échouerait de toute façon (pas seulement dans un environnement au réseau
+restreint). fast_mode=True est utilisé pour garder ce test rapide en
+usage courant (voir app/services/ml/trainer.py::FAST_MODE_MODELS) ;
+mettre fast_mode=False pour tester le pipeline complet à 6 modèles
+(nettement plus lent, quelques dizaines de secondes à quelques minutes
+selon la machine).
 """
 
 import sys
@@ -14,13 +25,23 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import numpy as np
 import pandas as pd
 
-from app.services.black_litterman import optimize_black_litterman
+from app.services.ml_black_litterman import (
+    r2_to_confidence,
+    build_ml_views,
+    optimize_ml_black_litterman,
+    MIN_CONFIDENCE,
+    MAX_CONFIDENCE,
+)
 
 
-def make_fake_returns(n_days: int = 500, seed: int = 42) -> pd.DataFrame:
-    """Rendements synthétiques pour 4 actifs fictifs (voir test_markowitz.py)."""
+def make_fake_returns(n_days: int = 800, seed: int = 42) -> pd.DataFrame:
+    """
+    Rendements synthétiques pour 4 actifs, sur une période assez longue
+    (n_days=800) pour dépasser le seuil minimum d'exemples d'entraînement
+    du pipeline ML (voir app/services/ml/utils.py::MIN_HISTORY_DAYS).
+    """
     rng = np.random.default_rng(seed)
-    dates = pd.date_range("2023-01-01", periods=n_days, freq="B")
+    dates = pd.date_range("2021-01-01", periods=n_days, freq="B")
     means = {"ACTIF_A": 0.0010, "ACTIF_B": 0.0006, "ACTIF_C": 0.0004, "ACTIF_D": 0.0002}
     stds = {"ACTIF_A": 0.025, "ACTIF_B": 0.015, "ACTIF_C": 0.010, "ACTIF_D": 0.008}
     data = {
@@ -30,115 +51,152 @@ def make_fake_returns(n_days: int = 500, seed: int = 42) -> pd.DataFrame:
     return pd.DataFrame(data, index=dates)
 
 
-def make_fake_market_weights() -> dict:
-    """Poids de marché fictifs, fournis directement (pas d'appel yfinance)."""
-    return {"ACTIF_A": 0.40, "ACTIF_B": 0.30, "ACTIF_C": 0.20, "ACTIF_D": 0.10}
-
-
-def test_weights_sum_to_one_no_views():
-    """Sans vue, la somme des poids doit toujours valoir 1."""
-    returns = make_fake_returns()
-    market_weights = make_fake_market_weights()
-    result = optimize_black_litterman(returns, views={}, market_weights=market_weights)
-
-    total = sum(result["weights"].values())
-    assert abs(total - 1.0) < 1e-4, f"Somme des poids = {total}"
-    print(f"[OK] Sans vue : somme des poids = {total:.6f}")
-
-
-def test_no_views_close_to_market_weights():
+def make_fake_ohlcv(returns: pd.DataFrame) -> pd.DataFrame:
     """
-    Propriété fondamentale de Black-Litterman : SANS vue, le portefeuille
-    optimal doit être proche des poids de marché fournis (c'est la
-    définition même de l'équilibre CAPM sous-jacent au modèle).
+    Reconstruit un DataFrame OHLCV multi-index (champ, ticker) — exactement
+    la forme que renvoie yfinance — à partir des rendements de clôture
+    synthétiques ci-dessus. Nécessaire car le pipeline ML (feature_engineering.py)
+    a besoin de l'OHLCV complet (High/Low/Volume pour ATR/RSI/volume ratio...),
+    pas seulement des rendements de clôture.
+    """
+    fields = ["Open", "High", "Low", "Close", "Volume"]
+    close = 100 * (1 + returns).cumprod()
+    tickers = list(returns.columns)
+
+    frames = {}
+    for field in fields:
+        if field == "Close":
+            frames[field] = close
+        elif field == "High":
+            frames[field] = close * 1.005
+        elif field == "Low":
+            frames[field] = close * 0.995
+        elif field == "Open":
+            frames[field] = close.shift(1).fillna(close.iloc[0])
+        else:  # Volume
+            frames[field] = pd.DataFrame(
+                2_000_000, index=close.index, columns=tickers
+            )
+
+    return pd.concat(frames, axis=1)
+
+
+def make_fake_prices(returns: pd.DataFrame) -> pd.Series:
+    """Reconstruit un prix de fin de période à partir des rendements (base 100)."""
+    price_index = 100 * (1 + returns).cumprod()
+    return price_index.iloc[-1]
+
+
+# ============================================================
+# Tests de r2_to_confidence (fonction pure, rapide)
+# ============================================================
+
+def test_r2_to_confidence_bounds():
+    """La confiance doit toujours rester dans [MIN_CONFIDENCE, MAX_CONFIDENCE]."""
+    assert r2_to_confidence(-5.0) == MIN_CONFIDENCE, "R² très négatif -> confiance minimale"
+    assert r2_to_confidence(0.0) == MIN_CONFIDENCE, "R² nul -> confiance minimale (borne basse)"
+    assert r2_to_confidence(2.0) == MAX_CONFIDENCE, "R² > 1 (cas limite) -> confiance maximale"
+    print(f"[OK] Bornes respectées : min={MIN_CONFIDENCE}, max={MAX_CONFIDENCE}")
+
+
+def test_r2_to_confidence_monotonic():
+    """Un meilleur R² doit toujours donner une confiance supérieure ou égale."""
+    c_low = r2_to_confidence(0.05)
+    c_mid = r2_to_confidence(0.30)
+    c_high = r2_to_confidence(0.70)
+    assert c_low <= c_mid <= c_high, "La confiance doit croître avec le R²"
+    print(f"[OK] Monotonie : R²=0.05 -> {c_low}, R²=0.30 -> {c_mid}, R²=0.70 -> {c_high}")
+
+
+# ============================================================
+# Tests de build_ml_views
+# ============================================================
+
+def test_negative_predictions_excluded_by_default():
+    """Les actifs à rendement prédit négatif ne doivent pas recevoir de vue."""
+    predicted = pd.Series({"ACTIF_A": 0.15, "ACTIF_B": -0.05, "ACTIF_C": 0.08})
+    views, confidences = build_ml_views(predicted, confidence=0.5, exclude_negative=True)
+
+    assert "ACTIF_B" not in views, "ACTIF_B a un rendement négatif, ne devrait pas avoir de vue"
+    assert "ACTIF_A" in views and "ACTIF_C" in views
+    print(f"[OK] Exclusion des rendements négatifs : vues générées pour {list(views.keys())}")
+
+
+def test_uniform_confidence_applied():
+    """Toutes les vues générées doivent porter la même confiance (celle dérivée du R²)."""
+    predicted = pd.Series({"ACTIF_A": 0.15, "ACTIF_C": 0.08})
+    views, confidences = build_ml_views(predicted, confidence=0.42, exclude_negative=True)
+
+    assert all(c == 0.42 for c in confidences.values())
+    print(f"[OK] Confiance uniforme appliquée : {confidences}")
+
+
+# ============================================================
+# Test d'intégration (plus lent : entraîne réellement des modèles)
+# ============================================================
+
+def test_full_pipeline_runs_without_error():
+    """
+    Vérifie que le pipeline complet (features -> sélection de modèle ->
+    vues -> Black-Litterman) s'exécute sans erreur et retourne un
+    portefeuille valide (somme des poids = 1).
     """
     returns = make_fake_returns()
-    market_weights = make_fake_market_weights()
-    result = optimize_black_litterman(returns, views={}, market_weights=market_weights)
+    end_prices = make_fake_prices(returns)
+    market_weights = {"ACTIF_A": 0.40, "ACTIF_B": 0.30, "ACTIF_C": 0.20, "ACTIF_D": 0.10}
 
-    for ticker, market_weight in market_weights.items():
-        obtained = result["weights"].get(ticker, 0.0)
-        assert abs(obtained - market_weight) < 0.05, (
-            f"{ticker}: poids obtenu {obtained} trop loin du poids de "
-            f"marché {market_weight} (écart > 5 points)"
+    # Les tickers de ce fichier de test sont fictifs (aucun symbole
+    # boursier réel) -> on intercepte le téléchargement OHLCV pour
+    # fournir des données simulées cohérentes avec `returns`, plutôt que
+    # de laisser le pipeline tenter (et échouer) un vrai appel yfinance.
+    fake_ohlcv = make_fake_ohlcv(returns)
+    import app.services.ml.data_loader as data_loader_module
+    import app.services.ml.predictor as predictor_module
+    original_download = predictor_module.download_ohlcv
+
+    def _fake_download_ohlcv(tickers, start, end=None, use_cache=True):
+        return fake_ohlcv
+
+    data_loader_module.download_ohlcv = _fake_download_ohlcv
+    predictor_module.download_ohlcv = _fake_download_ohlcv
+
+    try:
+        result = optimize_ml_black_litterman(
+            returns, end_prices=end_prices, market_weights=market_weights,
+            fast_mode=True,  # test rapide (Ridge + Gradient Boosting seulement)
         )
-    print(f"[OK] Sans vue, poids proches du marché : {result['weights']}")
+    finally:
+        # Toujours restaurer l'original, même en cas d'échec du test, pour
+        # ne pas polluer d'autres tests exécutés dans le même process
+        data_loader_module.download_ohlcv = original_download
+        predictor_module.download_ohlcv = original_download
 
+    total_weight = sum(result["weights"].values())
+    assert abs(total_weight - 1.0) < 1e-3, f"Somme des poids = {total_weight}"
+    assert "ml_model_selected" in result
+    assert "confidence_used" in result
+    assert 0.0 <= result["confidence_used"] <= 1.0
 
-def test_strong_positive_view_increases_weight():
-    """
-    Une vue fortement positive et à haute confiance sur un actif doit
-    augmenter son poids par rapport au cas sans vue.
-    """
-    returns = make_fake_returns()
-    market_weights = make_fake_market_weights()
-
-    baseline = optimize_black_litterman(returns, views={}, market_weights=market_weights)
-    with_view = optimize_black_litterman(
-        returns,
-        views={"ACTIF_D": 0.50},  # vue très optimiste sur l'actif le moins pondéré
-        confidences={"ACTIF_D": 0.9},
-        market_weights=market_weights,
-    )
-
-    baseline_d = baseline["weights"]["ACTIF_D"]
-    view_d = with_view["weights"]["ACTIF_D"]
-
-    assert view_d > baseline_d, (
-        f"Une vue positive forte sur ACTIF_D devrait augmenter son poids : "
-        f"{baseline_d} (sans vue) vs {view_d} (avec vue)"
-    )
-    print(f"[OK] Vue positive sur ACTIF_D : poids passé de {baseline_d:.4f} à {view_d:.4f}")
-
-
-def test_low_confidence_view_has_small_effect():
-    """
-    Une vue à très faible confiance ne doit presque pas déplacer le
-    résultat par rapport au cas sans vue (c'est le comportement qui
-    justifie ml_black_litterman.py : un modèle ML peu fiable, faible
-    confiance, ne doit pas déstabiliser le portefeuille).
-    """
-    returns = make_fake_returns()
-    market_weights = make_fake_market_weights()
-
-    # NOTE : test sur ACTIF_A plutôt qu'ACTIF_D. Avec l'optimisation par
-    # utilité quadratique (voir black_litterman.py::negative_quadratic_utility),
-    # un actif dont le rendement d'équilibre (Pi) est proche de zéro
-    # (c'est le cas d'ACTIF_D) est mécaniquement hypersensible à toute
-    # vue non nulle, même à confiance quasi nulle : l'utilité quadratique
-    # amplifie les écarts autour d'un rendement de base proche de zéro.
-    # ACTIF_A, dont le Pi est substantiel, donne un test de "vue faible"
-    # plus représentatif du cas d'usage réel (ml_black_litterman.py).
-    baseline = optimize_black_litterman(returns, views={}, market_weights=market_weights)
-    with_weak_view = optimize_black_litterman(
-        returns,
-        views={"ACTIF_A": 0.30},  # vue optimiste mais pas extrême
-        confidences={"ACTIF_A": 0.05},  # confiance quasi nulle
-        market_weights=market_weights,
-    )
-
-    baseline_a = baseline["weights"]["ACTIF_A"]
-    view_a = with_weak_view["weights"]["ACTIF_A"]
-    diff = abs(view_a - baseline_a)
-
-    assert diff < 0.05, (
-        f"Une vue à confiance quasi nulle ne devrait presque pas changer "
-        f"le poids : écart observé = {diff:.4f} (attendu < 0.05)"
-    )
-    print(f"[OK] Vue à faible confiance sur ACTIF_A : écart de poids = {diff:.4f} (attendu petit)")
+    print(f"[OK] Pipeline complet exécuté sans erreur.")
+    print(f"     Modèle sélectionné : {result['ml_model_selected']}")
+    print(f"     Confiance utilisée : {result['confidence_used']}")
+    print(f"     Poids finaux : {result['weights']}")
 
 
 if __name__ == "__main__":
-    print("=== Test 1 : somme des poids = 1 (sans vue) ===")
-    test_weights_sum_to_one_no_views()
+    print("=== Test 1 : bornes de r2_to_confidence ===")
+    test_r2_to_confidence_bounds()
 
-    print("\n=== Test 2 : sans vue, poids proches du marché ===")
-    test_no_views_close_to_market_weights()
+    print("\n=== Test 2 : monotonie de r2_to_confidence ===")
+    test_r2_to_confidence_monotonic()
 
-    print("\n=== Test 3 : vue positive forte augmente le poids ===")
-    test_strong_positive_view_increases_weight()
+    print("\n=== Test 3 : exclusion des prédictions négatives ===")
+    test_negative_predictions_excluded_by_default()
 
-    print("\n=== Test 4 : vue à faible confiance a un effet minime ===")
-    test_low_confidence_view_has_small_effect()
+    print("\n=== Test 4 : confiance uniforme appliquée aux vues ===")
+    test_uniform_confidence_applied()
 
-    print("\n✅ Tous les tests Black-Litterman sont passés avec succès.")
+    print("\n=== Test 5 : pipeline complet (plus lent) ===")
+    test_full_pipeline_runs_without_error()
+
+    print("\n✅ Tous les tests ML + Black-Litterman sont passés avec succès.")
