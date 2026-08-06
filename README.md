@@ -70,27 +70,4 @@ portfolio-optimizer/
 ├── run.py
 └── .env.example
 
-## API
 
-POST /api/data/fetch — télécharger prix et rendements
-POST /api/optimization/markowitz — portefeuille max Sharpe
-POST /api/optimization/black-litterman — Black-Litterman (avec ou sans vues)
-POST /api/optimization/ml — ML + Black-Litterman
-POST /api/optimization/backtest — backtest multi-méthodes
-
-## Méthodologie (résumé)
-
-1. Markowitz : moyenne et covariance annualisées, maximisation du Sharpe (poids positifs, somme égale à 1).
-2. Black-Litterman : équilibre de marché + vues manuelles ou issues du ML.
-3. ML : modèles par actif, diagnostics en hold-out chronologique, confiance dérivée du R², limitation des vues extrêmes.
-4. Backtest : fenêtres expanding, comparaison hors-échantillon des trois méthodes.
-
-Le faible pouvoir prédictif (R² souvent inférieur ou égal à 0 sur actions individuelles) est attendu. L’architecture bayésienne limite l’impact d’un signal bruité.
-
-## Tests
-
-pytest tests/ -q
-
-## Licence / usage
-
-Projet académique / démonstration. Les résultats ne constituent pas un conseil en investissement.
