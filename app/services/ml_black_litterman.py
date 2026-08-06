@@ -61,6 +61,12 @@ from app.services.black_litterman import optimize_black_litterman
 MIN_CONFIDENCE = 0.05  # confiance minimale, même si R² est négatif ou nul
 MAX_CONFIDENCE = 0.95  # confiance maximale, jamais totale (incertitude résiduelle)
 
+# Bornes des rendements annualisés prédits avant injection dans BL.
+# Empêche une prédiction aberrante (ex. +200 %) de déformer les vues
+# même lorsque la confiance auto-calibrée est déjà très faible.
+PREDICTION_CLIP_LOWER = -0.50  # -50 % / an
+PREDICTION_CLIP_UPPER = 0.80   # +80 % / an
+
 
 def r2_to_confidence(r2: float) -> float:
     """
@@ -74,6 +80,26 @@ def r2_to_confidence(r2: float) -> float:
     rendements financiers, voir limites documentées dans ml_predictive.py).
     """
     return float(np.clip(r2, MIN_CONFIDENCE, MAX_CONFIDENCE))
+
+
+def clip_predicted_returns(
+    predicted_returns: pd.Series,
+    lower: float = PREDICTION_CLIP_LOWER,
+    upper: float = PREDICTION_CLIP_UPPER,
+) -> pd.Series:
+    """
+    Borne les rendements annualisés prédits avant injection dans
+    Black-Litterman.
+
+    Sans cette étape, une prédiction extrême (ex. NVDA +215 %) reste
+    visible dans les vues même avec une confiance de 5 %, et tire encore
+    légèrement les poids. Le clip ne "répare" pas le pouvoir prédictif
+    du modèle : il empêche uniquement le bruit de magnitude irréaliste
+    de polluer le mécanisme bayésien.
+    """
+    if len(predicted_returns) == 0:
+        return predicted_returns
+    return predicted_returns.clip(lower=lower, upper=upper)
 
 
 def build_ml_views(
@@ -147,14 +173,13 @@ def optimize_ml_black_litterman(
 
     Returns:
         dict avec la même structure que optimize_black_litterman(), plus :
-            - 'ml_predicted_returns': rendements prédits par le modèle
-            - 'ml_model_selected': famille de modèle retenue (ridge/
-              random_forest/gradient_boosting)
+            - 'ml_predicted_returns': rendements prédits après clip (vues BL)
+            - 'ml_predicted_returns_raw': rendements bruts avant clip
+            - 'ml_model_selected': famille de modèle retenue
             - 'ml_model_diagnostics': MAE/RMSE/R² du modèle sur hold-out
             - 'confidence_used': niveau de confiance appliqué aux vues
-              (dérivé du R²)
-            - 'views_excluded': liste des tickers exclus des vues
-              (rendement prédit négatif)
+            - 'views_excluded': tickers exclus (rendement prédit négatif)
+            - 'prediction_clip_bounds': bornes utilisées pour le clip
     """
     tickers = list(returns.columns)
 
@@ -168,7 +193,13 @@ def optimize_ml_black_litterman(
         returns, tickers=tickers, random_state=random_state, fast_mode=fast_mode
     )
 
-    predicted_returns = pipeline_result["predicted_returns"].reindex(tickers).dropna()
+    predicted_returns_raw = (
+        pipeline_result["predicted_returns"].reindex(tickers).dropna()
+    )
+    # Clip des prédictions extrêmes AVANT construction des vues BL
+    # (ex. +215 % -> plafonné à PREDICTION_CLIP_UPPER).
+    predicted_returns = clip_predicted_returns(predicted_returns_raw)
+
     model_selected = pipeline_result["model_selected"]
     model_diagnostics = pipeline_result["model_diagnostics"]
     skipped_tickers = pipeline_result["skipped_tickers"]
@@ -182,7 +213,7 @@ def optimize_ml_black_litterman(
         r2 = pipeline_result["global_r2"]
         confidence = r2_to_confidence(r2 if r2 is not None else 0.0)
 
-    # Étape 2 : conversion des prédictions en vues Black-Litterman
+    # Étape 2 : conversion des prédictions (déjà clipées) en vues BL
     if len(predicted_returns) > 0:
         views, confidences = build_ml_views(
             predicted_returns, confidence, exclude_negative=exclude_negative_views
@@ -206,8 +237,13 @@ def optimize_ml_black_litterman(
         end_prices=end_prices,
     )
 
+    # Vues effectivement soumises à BL (après clip)
     result["ml_predicted_returns"] = {
         t: round(float(v), 4) for t, v in predicted_returns.items()
+    }
+    # Prédictions brutes du modèle (avant clip), pour transparence / rapport
+    result["ml_predicted_returns_raw"] = {
+        t: round(float(v), 4) for t, v in predicted_returns_raw.items()
     }
     result["ml_model_selected"] = model_selected
     result["ml_model_diagnostics"] = model_diagnostics
@@ -215,5 +251,9 @@ def optimize_ml_black_litterman(
     result["views_excluded"] = excluded_tickers
     result["ml_tickers_skipped"] = skipped_tickers  # historique insuffisant, aucune prédiction générée
     result["fast_mode_used"] = fast_mode
+    result["prediction_clip_bounds"] = {
+        "lower": PREDICTION_CLIP_LOWER,
+        "upper": PREDICTION_CLIP_UPPER,
+    }
 
     return result

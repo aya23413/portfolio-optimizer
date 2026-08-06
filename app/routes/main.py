@@ -5,11 +5,17 @@ main_bp = Blueprint('main', __name__)
 
 @main_bp.route('/')
 def index():
-    """Page d'accueil : sélection des actifs et lancement des optimisations."""
+    """Accueil : présentation du projet."""
     return render_template('index.html')
+
+
+@main_bp.route('/data')
+def data():
+    """Données : téléchargement, prétraitements et statistiques."""
+    return render_template('data.html')
 
 
 @main_bp.route('/dashboard')
 def dashboard():
-    """Tableau de bord : visualisation des résultats et comparaison des méthodes."""
+    """Optimisation : Markowitz, Black-Litterman, ML, comparaison et backtest."""
     return render_template('dashboard.html')

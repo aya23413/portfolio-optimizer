@@ -132,8 +132,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!tickersJson) {
         markowitzDiv.innerHTML = `
             <p class="text-muted">
-                Aucune donnée disponible. Veuillez d'abord télécharger des
-                données sur la page <a href="/">Accueil</a>.
+            Aucune donnée disponible. Veuillez d'abord télécharger des
+            données sur la page <a href="/data">Données</a>.
             </p>`;
         return;
     }

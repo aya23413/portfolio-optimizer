@@ -1,22 +1,59 @@
 {% extends "base.html" %}
 
-{% block title %}Tableau de bord - Portfolio Optimizer{% endblock %}
+{% block title %}Optimisation | OptiFolio{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Comparaison des méthodes d'optimisation</h1>
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+    <div>
+        <h1 class="h3 mb-1">Optimisation</h1>
+        <p class="text-muted mb-0">
+            Markowitz · Black-Litterman · Machine Learning · Comparaison &amp; backtest
+        </p>
+    </div>
+    <a href="{{ url_for('main.data') }}" class="btn btn-outline-secondary btn-sm">← Retour aux données</a>
+</div>
 
-<div class="row" id="methods-comparison">
-    <div class="col-md-4">
+<ul class="nav nav-tabs mb-3" id="opt-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="tab-markowitz" data-bs-toggle="tab"
+                data-bs-target="#pane-markowitz" type="button" role="tab">
+            Markowitz
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-bl" data-bs-toggle="tab"
+                data-bs-target="#pane-bl" type="button" role="tab">
+            Black-Litterman
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-ml" data-bs-toggle="tab"
+                data-bs-target="#pane-ml" type="button" role="tab">
+            Machine Learning
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-compare" data-bs-toggle="tab"
+                data-bs-target="#pane-compare" type="button" role="tab">
+            Comparaison &amp; backtest
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="opt-tab-content">
+
+    <div class="tab-pane fade show active" id="pane-markowitz" role="tabpanel">
         <div class="card">
-            <div class="card-header">Markowitz</div>
+            <div class="card-header">Markowitz — maximisation du ratio de Sharpe</div>
             <div class="card-body" id="markowitz-results">
                 <p class="text-muted">En attente de calcul...</p>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+
+    <div class="tab-pane fade" id="pane-bl" role="tabpanel">
         <div class="card">
-            <div class="card-header">Black-Litterman</div>
+            <div class="card-header">Black-Litterman — équilibre de marché + vues</div>
             <div class="card-body">
                 <div id="bl-views-form" class="mb-3"></div>
                 <div id="black-litterman-results">
@@ -25,36 +62,41 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+
+    <div class="tab-pane fade" id="pane-ml" role="tabpanel">
         <div class="card">
-            <div class="card-header">Machine Learning</div>
+            <div class="card-header">Machine Learning — vues auto (BL + IA)</div>
             <div class="card-body" id="ml-results">
                 <p class="text-muted">En attente de calcul...</p>
             </div>
         </div>
     </div>
-</div>
 
-<div class="mt-4" id="comparison-table"></div>
+    <div class="tab-pane fade" id="pane-compare" role="tabpanel">
+        <div id="comparison-table" class="mb-4"></div>
 
-<div class="mt-4" id="backtest-section">
-    <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <span>Backtest hors-échantillon (fenêtres glissantes)</span>
-            <button id="backtest-btn" class="btn btn-sm btn-outline-primary">Lancer le backtest</button>
+        <div class="card mb-4">
+            <div class="card-header">Comparaison visuelle (ex-ante)</div>
+            <div class="card-body">
+                <canvas id="performance-chart" height="100"></canvas>
+            </div>
         </div>
-        <div class="card-body" id="backtest-output">
-            <p class="text-muted">
-                Compare Markowitz et Black-Litterman sur des données qu'ils
-                n'ont jamais vues au moment de l'optimisation (contrairement
-                aux résultats ci-dessus, calculés sur toute la période).
-            </p>
+
+        <div class="card" id="backtest-section">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span>Backtest hors-échantillon (fenêtres glissantes)</span>
+                <button id="backtest-btn" class="btn btn-sm btn-primary">Lancer le backtest</button>
+            </div>
+            <div class="card-body" id="backtest-output">
+                <p class="text-muted mb-0">
+                    Compare Markowitz, Black-Litterman et ML sur des données
+                    jamais vues au moment de l’optimisation (contrairement aux
+                    résultats des onglets ci-dessus, calculés sur toute la période).
+                </p>
+            </div>
         </div>
     </div>
-</div>
 
-<div class="mt-4">
-    <canvas id="performance-chart"></canvas>
 </div>
 {% endblock %}
 

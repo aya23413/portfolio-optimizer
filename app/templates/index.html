@@ -1,67 +1,24 @@
 {% extends "base.html" %}
 
-{% block title %}Accueil - Portfolio Optimizer{% endblock %}
+{% block title %}Accueil | Portfolio Optimizer{% endblock %}
+{% block body_class %}page-home{% endblock %}
+{% block main_class %}main-content--flush{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Sélection des actifs</h1>
-
-<div class="card">
-    <div class="card-body">
-        <form id="asset-selection-form">
-            <div class="mb-3">
-                <label for="tickers" class="form-label">Tickers (séparés par des virgules)</label>
-                <input type="text" class="form-control" id="tickers" value="AAPL, MSFT, NVDA, AMZN, GOOGL">
-            </div>
-            <div class="row mb-3">
-                <div class="col">
-                    <label for="start-date" class="form-label">Date de début</label>
-                    <input type="date" class="form-control" id="start-date" value="2020-01-01">
-                </div>
-                <div class="col">
-                    <label for="end-date" class="form-label">Date de fin</label>
-                    <input type="date" class="form-control" id="end-date" value="2025-01-01">
-                </div>
-            </div>
-            <button type="submit" class="btn btn-primary" id="submit-btn">Télécharger les données</button>
-        </form>
+<section class="hero-fullscreen">
+    <div class="hero-overlay"></div>
+    <div class="hero-center">
+        <h1 class="hero-title">OptiFolio</h1>
+        <p class="hero-tagline">Plateforme d’optimisation de portefeuille</p>
+        <p class="hero-desc">
+            Comparaison des méthodes <span class="accent">Markowitz</span>,
+            <span class="accent">Black-Litterman</span> et
+            <span class="accent">Machine Learning</span>
+            appliquées à la construction de portefeuilles actions.
+        </p>
+        <a href="{{ url_for('main.data') }}" class="btn btn-hero">
+            Accéder aux Données
+        </a>
     </div>
-</div>
-
-<div id="results" class="mt-4"></div>
-
-<div class="row mt-4">
-  <div class="col-12">
-    <div class="card">
-      <div class="card-body">
-        <canvas id="priceChart" height="90"></canvas>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="row mt-4">
-  <div class="col-12">
-    <div class="card">
-      <div class="card-body">
-        <canvas id="returnsChart" height="90"></canvas>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="row mt-4 mb-4">
-  <div class="col-12">
-    <div class="card">
-      <div class="card-body">
-        <h5 class="card-title">Matrice de corrélation</h5>
-        <div id="correlationMatrix" class="table-responsive"></div>
-      </div>
-    </div>
-  </div>
-</div>
-{% endblock %}
-
-{% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+</section>
 {% endblock %}

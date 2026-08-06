@@ -282,3 +282,4 @@ def optimize_markowitz(
         "volatility": round(final_volatility, 4),
         "sharpe_ratio": round(final_sharpe, 4),
     }
+

@@ -1,4 +1,4 @@
-# Portfolio Optimizer
+# POptiFolio
 
 Plateforme web d'aide à la décision pour l'optimisation de portefeuille,
 combinant méthodes classiques (Markowitz, Black-Litterman) et techniques

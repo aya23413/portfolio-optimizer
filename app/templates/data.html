@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Données | OptiFolio{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+    <div>
+        <h1 class="h3 mb-1">Données</h1>
+        <p class="text-muted mb-0">
+            Téléchargement des cours, nettoyage et statistiques préliminaires
+            avant l’optimisation.
+        </p>
+    </div>
+    <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-primary">
+        Continuer vers l’optimisation →
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">Télécharger les données</div>
+    <div class="card-body">
+        <form id="asset-selection-form">
+            <div class="mb-3">
+                <label for="tickers" class="form-label">Tickers (séparés par des virgules)</label>
+                <input type="text" class="form-control" id="tickers" value="AAPL, MSFT, NVDA, AMZN, GOOGL">
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label for="start-date" class="form-label">Date de début</label>
+                    <input type="date" class="form-control" id="start-date" value="2020-01-01">
+                </div>
+                <div class="col-md-6">
+                    <label for="end-date" class="form-label">Date de fin</label>
+                    <input type="date" class="form-control" id="end-date" value="2025-01-01">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" id="submit-btn">Télécharger les données</button>
+        </form>
+    </div>
+</div>
+
+<div id="results" class="mb-4"></div>
+
+<div class="row g-4 mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">Évolution des prix</div>
+            <div class="card-body">
+                <canvas id="priceChart" height="90"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">Rendements journaliers</div>
+            <div class="card-body">
+                <canvas id="returnsChart" height="90"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">Matrice de corrélation</div>
+            <div class="card-body">
+                <div id="correlationMatrix" class="table-responsive"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+{% endblock %}
